@@ -244,6 +244,7 @@ PYTHONPATH=$PYTHONPATH:$(pwd) python -m jupyter notebook --no-browser --port 888
 The first step is to define the mechanism:
 
 ```python
+import numpy as np
 from deltasiege.mechanism import Mechanism
 
 class GaussianMechanismExample(Mechanism):
@@ -253,16 +254,38 @@ class GaussianMechanismExample(Mechanism):
     """
     
     def _init_helper(self, epsilon: float, delta : float, sensitivity : float) -> None:
-        pass
+        """
+        Initialization helper. Do not overwrite __init__
+        """
+        self.sensitivity = sensitivity
+        self.std = self.guarantee_(epsilon, delta)
+        super()._init_helper(epsilon, delta)
     
     def __call__(self, x : float, n: int) -> np.ndarray:
-        pass
+        """
+        The specific mechanism - Gaussian noise is added to x
+        n samples are drawn.
+        """
+        std = self.guarantee_(self.epsilon, self.delta)
+        return x + np.random.normal(0, std, (n,))
     
     def constraint(self, epsilon : float, delta : float) -> bool:
-        pass
+        """
+        Returns if epsilon and delta are valid DP parameters for the mechanism
+        For this mechanism it must hold that 0 <= epsilon, delta <= 1
+        """
+        return 0 <= epsilon <= 1 and 0 <= delta <= 1
         
     def guarantee_(self, epsilon : float, delta : float) -> float:
-        pass
+        """
+        A mapping of (epsilon, delta) to a parameter rho, which uniquely specifies the privacy level
+        Is non-increasing in both epsilon and delta.
+        For the classical Gaussian mechanism, one possible parameter is the standard deviation.
+        """
+        if epsilon <= 0 or delta <= 0:
+            return float("inf")
+
+        return np.sqrt(2 * np.log(1.25 / delta) * np.square(self.sensitivity / epsilon))
     
     def perturb_delta(self, new_delta : float) -> float:
         pass
@@ -291,14 +314,26 @@ from sklearn.pipeline import Pipeline
 
 from deltasiege.ddsampler import SimpleSampler
 from deltasiege.classifiers import SklearnClassifier, BitPatternFeatureTransformer
+from deltasiege.attack import WitnessOptimization, LinesearchEstimator
+
+from deltasiege import DeltaSiege
+from deltasiege.utils import Config
+from deltasiege.logging import Logger
+
+epsilon_low = 0.1
+epsilon_high = 0.1
+delta_low = 0.1
+delta_high = 0.1
+sensitivity_low = 1.0
+sensitivity_high = 1.0
 
 # Set up the sampler
 search_space = SimpleSampler(
     GaussianMechanismExample,
     epsilon = (epsilon_low, epsilon_high),
     delta = (delta_low, delta_high),
-    sensitivity = (sensitivity_low, sensitivity_high)
-    input_pairs = [(0.0, 1.0), ...]
+    sensitivity = (sensitivity_low, sensitivity_high),
+    input_pairs = [(0.0, 1.0)]
 )
 
 # Set up the learning method for learning \tilde{p}
